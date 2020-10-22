@@ -67,8 +67,8 @@ class FlappyAgent:
         self.discountFactor = 0.1
         self.opmcc = OPMCC()
         self.actions = [0,1]
-        self.curr_epi = []
-        self.curr_epi_rew = []
+        self.curr_epi = dict()
+        self.score = 0
 
     def reward_values(self):
         """ returns the reward values used for training
@@ -92,9 +92,9 @@ class FlappyAgent:
         #(next_pipe_top_y, next_pipe_dist_to_player, player_y, player_vel, action)
         
         s1_tup = s1 + (a,)
-        self.curr_epi.append(s1_tup)
-        self.curr_epi_rew.append(r)
-        
+        if s1_tup not in self.curr_epi.keys():
+            self.curr_epi[s1_tup] = self.score
+        self.score += r 
         return #ok
 
     def state_binner(self, state):
@@ -140,13 +140,9 @@ class FlappyAgent:
         return self.opmcc.get_policy(state) 
     
     def calculate(self):
-        another = []
-        for num, state in enumerate(self.curr_epi):
-            if (state not in another):
-                another.append(state)
-                self.opmcc.add_to_list(state, sum(self.curr_epi_rew[num:]))
-        self.curr_epi = []
-        self.curr_epi_rew = []
+        for state, minus in self.curr_epi.items():
+            self.opmcc.add_to_list(state, self.score-self.curr_epi[state])
+        self.curr_epi = dict()
 
 def run_game(nb_episodes, agent):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
@@ -194,6 +190,7 @@ def train(nb_episodes, agent):
 
     score = 0
     biggest_score = -5
+    avg_score = 0
     while nb_episodes > 0:
         # pick an action
         state = env.game.getGameState()
@@ -213,11 +210,15 @@ def train(nb_episodes, agent):
         
         # reset the environment if the game is over
         if env.game_over():
+            avg_score += score
             if score > biggest_score:
                 biggest_score = score
                 print(biggest_score)
                 print(nb_episodes)
-            
+            if nb_episodes %100 == 0:
+                print(avg_score/100)
+                avg_score = 0
+
             #print("score for this episode: %d" % score)
             agent.calculate()
             env.reset_game()
