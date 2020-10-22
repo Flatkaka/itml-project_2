@@ -118,4 +118,4 @@ def train(nb_episodes, agent):
             score = 0
 
 agent = FlappyAgent()
-train(5, agent)
+train(100, agent)
