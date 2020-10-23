@@ -3,44 +3,31 @@ from ple import PLE
 import random
 import statistics
 
-class OPMCC:
-    def __init__(self, epsilon = 0.1):
+class QL:
+    def __init__(self, alpha = 0.1, gamma = 1):
         self.action = [0,1]
-        self.action_reward_dict = dict()
+        self.state_action_q_dict = dict()
         self.state_action_count = dict()
-        self.pi = 1-epsilon+epsilon/len(self.action)
+        self.alpha = alpha
+        self.gamma = gamma
         for i in range(15):
             for j in range(15):
                 for k in range(15):
                     for l in range(-8,11):
-                        for m in self.action:
-                            new_state = (i, j, k, l, m)
-                            # (next_pipe_top_y, next_pipe_dist_to_player, player_y, player_vel, action)
-                            self.action_reward_dict[new_state] = 0
-                            self.state_action_count[new_state] = 0
-                            
+                        new_state = (i, j, k, l)
+                        # (next_pipe_top_y, next_pipe_dist_to_player, player_y, player_vel, action)
+                        self.state_action_q_dict[new_state] = [0,0]
+        self.state_action_q_dict["terminal"] = [0]
 
                             
-    def add_to_list(self, deli, score):
-        self.state_action_count[deli]  += 1
-        self.action_reward_dict[deli] += (score - self.action_reward_dict[deli])/self.state_action_count[deli] 
-
+    def update_q_reward(self, s1, a, s2, r):
+        self.state_action_q_dict[s1][a] = self.state_action_q_dict[s1][a] + self.alpha*(r + self.gamma*max(self.state_action_q_dict[s2]) - self.state_action_q_dict[s1][a])
+        
     def get_action(self, s1):
-
-
-        test1 = s1 + (0,)
-        test2 = s1 + (1,)
-       
-        if self.action_reward_dict[test1] > self.action_reward_dict[test2]:
-            if random.randint(1,100)>self.pi*100:
-                return 1
-            else:
-                return 0
-        elif self.action_reward_dict[test1] < self.action_reward_dict[test2]:
-            if random.randint(1,100)>self.pi*100:
-                return 0
-            else:
-                return 1
+        if self.state_action_q_dict[s1][0] >self.state_action_q_dict[s1][1]:
+            return 0
+        elif self.state_action_q_dict[s1][0] <self.state_action_q_dict[s1][1]:
+            return 1
         else:
             if random.randint(1,100)>50:
                 return 1
@@ -48,11 +35,10 @@ class OPMCC:
                 return 0
     
     def get_policy(self, s1):
-        test1 = s1 + (0,)
-        test2 = s1 + (1,)
-        if self.action_reward_dict[test1] > self.action_reward_dict[test2]:
+
+        if self.state_action_q_dict[s1][0] >self.state_action_q_dict[s1][1]:
             return 0
-        elif self.action_reward_dict[test1] < self.action_reward_dict[test2]:
+        elif self.state_action_q_dict[s1][0] <self.state_action_q_dict[s1][1]:
             return 1
         else:
             if random.randint(1,100)>50:
@@ -65,7 +51,7 @@ class FlappyAgent:
     def __init__(self):
         self.results = []
         self.discountFactor = 0.1
-        self.opmcc = OPMCC()
+        self.QL = QL()
         self.actions = [0,1]
         self.curr_epi = dict()
         self.score = 0
@@ -90,12 +76,9 @@ class FlappyAgent:
             from the first call.
             """
         #(next_pipe_top_y, next_pipe_dist_to_player, player_y, player_vel, action)
-        
-        s1_tup = s1 + (a,)
-        if s1_tup not in self.curr_epi.keys():
-            self.curr_epi[s1_tup] = self.score
-        self.score += r 
-        
+        if end:
+            s2 = "terminal"
+        self.QL.update_q_reward(s1, a, s2, r)
         return #ok
 
     def state_binner(self, state):
@@ -126,7 +109,7 @@ class FlappyAgent:
         # At the moment we just return an action uniformly at random.
 
 
-        return self.opmcc.get_action(s1)
+        return self.QL.get_action(s1)
 
 
     def policy(self, state):
@@ -138,13 +121,8 @@ class FlappyAgent:
         """
         #print("state: %s" % state)
         # TODO: 
-        return self.opmcc.get_policy(state) 
+        return self.QL.get_policy(state) 
     
-    def calculate(self):
-        for state, minus in self.curr_epi.items():
-            self.opmcc.add_to_list(state, self.score-self.curr_epi[state])
-        self.curr_epi = dict()
-        self.score = 0
 
 def run_game(nb_episodes, agent):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
@@ -222,7 +200,6 @@ def train(nb_episodes, agent):
                 avg_score = 0
 
             #print("score for this episode: %d" % score)
-            agent.calculate()
             env.reset_game()
             
             nb_episodes -= 1
