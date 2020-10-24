@@ -2,42 +2,41 @@ from ple.games.flappybird import FlappyBird
 from ple import PLE
 import random
 import statistics
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pickle
 
-class OPMCC:
-    def __init__(self, epsilon = 0.1):
+
+class QL:
+    def __init__(self, alpha = 0.1, gamma = 1, epsilon = 0.1):
         self.action = [0,1]
-        self.action_reward_dict = dict()
+        self.state_action_q_dict = dict()
         self.state_action_count = dict()
-        self.pi = 1-epsilon+epsilon/len(self.action)
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = (1-(epsilon/2))*100
         for i in range(15):
             for j in range(15):
                 for k in range(15):
                     for l in range(-8,11):
-                        for m in self.action:
-                            new_state = (i, j, k, l, m)
-                            # (next_pipe_top_y, next_pipe_dist_to_player, player_y, player_vel, action)
-                            self.action_reward_dict[new_state] = 0
-                            self.state_action_count[new_state] = 0
-                            
+                        new_state = (i, j, k, l)
+                        # (next_pipe_top_y, next_pipe_dist_to_player, player_y, player_vel, action)
+                        self.state_action_q_dict[new_state] = [0,0]
+        self.state_action_q_dict["terminal"] = [0]
 
                             
-    def add_to_list(self, deli, score):
-        self.state_action_count[deli]  += 1
-        self.action_reward_dict[deli] += (score - self.action_reward_dict[deli])/self.state_action_count[deli] 
-
+    def update_q_reward(self, s1, a, s2, r):
+        self.state_action_q_dict[s1][a] = self.state_action_q_dict[s1][a] + self.alpha*(r + self.gamma*max(self.state_action_q_dict[s2]) - self.state_action_q_dict[s1][a])
+        
     def get_action(self, s1):
-
-
-        test1 = s1 + (0,)
-        test2 = s1 + (1,)
-       
-        if self.action_reward_dict[test1] > self.action_reward_dict[test2]:
-            if random.randint(1,100)>self.pi*100:
+        if self.state_action_q_dict[s1][0] >self.state_action_q_dict[s1][1]:
+            if random.randint(1,100)>self.epsilon:
                 return 1
             else:
                 return 0
-        elif self.action_reward_dict[test1] < self.action_reward_dict[test2]:
-            if random.randint(1,100)>self.pi*100:
+        elif self.state_action_q_dict[s1][0] <self.state_action_q_dict[s1][1]:
+            if random.randint(1,100)>self.epsilon:
                 return 0
             else:
                 return 1
@@ -48,11 +47,10 @@ class OPMCC:
                 return 0
     
     def get_policy(self, s1):
-        test1 = s1 + (0,)
-        test2 = s1 + (1,)
-        if self.action_reward_dict[test1] > self.action_reward_dict[test2]:
+
+        if self.state_action_q_dict[s1][0] >self.state_action_q_dict[s1][1]:
             return 0
-        elif self.action_reward_dict[test1] < self.action_reward_dict[test2]:
+        elif self.state_action_q_dict[s1][0] <self.state_action_q_dict[s1][1]:
             return 1
         else:
             if random.randint(1,100)>50:
@@ -65,7 +63,7 @@ class FlappyAgent:
     def __init__(self):
         self.results = []
         self.discountFactor = 0.1
-        self.opmcc = OPMCC()
+        self.QL = QL()
         self.actions = [0,1]
         self.curr_epi = dict()
         self.score = 0
@@ -90,12 +88,9 @@ class FlappyAgent:
             from the first call.
             """
         #(next_pipe_top_y, next_pipe_dist_to_player, player_y, player_vel, action)
-        
-        s1_tup = s1 + (a,)
-        if s1_tup not in self.curr_epi.keys():
-            self.curr_epi[s1_tup] = self.score
-        self.score += r 
-        
+        if end:
+            s2 = "terminal"
+        self.QL.update_q_reward(s1, a, s2, r)
         return #ok
 
     def state_binner(self, state):
@@ -126,7 +121,7 @@ class FlappyAgent:
         # At the moment we just return an action uniformly at random.
 
 
-        return self.opmcc.get_action(s1)
+        return self.QL.get_action(s1)
 
 
     def policy(self, state):
@@ -138,13 +133,8 @@ class FlappyAgent:
         """
         #print("state: %s" % state)
         # TODO: 
-        return self.opmcc.get_policy(state) 
+        return self.QL.get_policy(state) 
     
-    def calculate(self):
-        for state, minus in self.curr_epi.items():
-            self.opmcc.add_to_list(state, self.score-self.curr_epi[state])
-        self.curr_epi = dict()
-        self.score = 0
 
 def run_game(nb_episodes, agent):
     """ Runs nb_episodes episodes of the game with agent picking the moves.
@@ -160,8 +150,10 @@ def run_game(nb_episodes, agent):
     # TODO: to speed up training change parameters of PLE as follows:
     # display_screen=False, force_fps=True 
     env.init()
-
+    totalscore = 0
+    count = nb_episodes
     score = 0
+    
     while nb_episodes > 0:
         # pick an action
         # TODO: for training using agent.training_policy instead
@@ -177,61 +169,19 @@ def run_game(nb_episodes, agent):
     
         # reset the environment if the game is over
         if env.game_over():
+            totalscore += score
+            print(count)
             print("score for this episode: %d" % score)
             env.reset_game()
             nb_episodes -= 1
             score = 0
+    print("average for this run is :%d" % (totalscore/count))
     
 
-def train(nb_episodes, agent):
-    reward_values = agent.reward_values()
-    
-    env = PLE(FlappyBird(), fps=30, display_screen=False, force_fps=True, rng=None,
-            reward_values = reward_values)
-    env.init()
-
-    score = 0
-    biggest_score = -5
-    avg_score = 0
-    while nb_episodes > 0:
-        # pick an action
-        state = env.game.getGameState()
-        state = agent.state_binner(state)
-        action = agent.training_policy(state)
-
-        # step the environment
-        reward = env.act(env.getActionSet()[action])
-        #print("reward=%d" % reward)
-
-        # let the agent observe the current state transition
-        newState = env.game.getGameState()
-        newState = agent.state_binner(newState)
-        agent.observe(state, action, reward, newState, env.game_over())
-        
-        score += reward
-        
-        # reset the environment if the game is over
-        if env.game_over():
-            avg_score += score
-            if score > biggest_score:
-                biggest_score = score
-                print(biggest_score)
-                print(nb_episodes)
-            if nb_episodes %100 == 0:
-                print(avg_score/100)
-                avg_score = 0
-
-            #print("score for this episode: %d" % score)
-            agent.calculate()
-            env.reset_game()
-            
-            nb_episodes -= 1
-            score = 0
-            
-    print(biggest_score)
 
 
 
-agent = FlappyAgent()
-train(100000, agent)
+agent = pickle.load(open('QL.txt',"rb"))
+
 run_game(70, agent)
+
