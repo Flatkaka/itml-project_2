@@ -6,57 +6,54 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pickle
+import numpy as np
 
 
 class QL:
     def __init__(self, alpha = 0.1, gamma = 1, epsilon = 0.1):
         self.action = [0,1]
-        self.state_action_q_dict = dict()
-        self.state_action_count = dict()
+        self.flap_vector = np.array([1,1,1,1])
+        self.noop_vector = np.array([1,1,1,1])
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = (1-(epsilon/2))*100
-        for i in range(15):
-            for j in range(15):
-                for k in range(15):
-                    for l in range(-8,11):
-                        new_state = (i, j, k, l)
-                        # (next_pipe_top_y, next_pipe_dist_to_player, player_y, player_vel, action)
-                        self.state_action_q_dict[new_state] = [0,0]
-        self.state_action_q_dict["terminal"] = [0]
 
                             
     def update_q_reward(self, s1, a, s2, r):
-        self.state_action_q_dict[s1][a] = self.state_action_q_dict[s1][a] + self.alpha*(r + self.gamma*max(self.state_action_q_dict[s2]) - self.state_action_q_dict[s1][a])
-        
-    def get_action(self, s1):
-        if self.state_action_q_dict[s1][0] >self.state_action_q_dict[s1][1]:
-            if random.randint(1,100)>self.epsilon:
-                return 1
-            else:
-                return 0
-        elif self.state_action_q_dict[s1][0] <self.state_action_q_dict[s1][1]:
-            if random.randint(1,100)>self.epsilon:
-                return 0
-            else:
-                return 1
+        if a == 0:
+            q= self.alpha*( r+ self.gamma*self.max_next(s2) - np.inner(s1, self.flap_vector) )
+            self.flap_vector = self.flap_vector + q * s1
         else:
-            if random.randint(1,100)>50:
+            q =self.alpha*( r+ self.gamma*self.max_next(s2) - np.inner(s1, self.noop_vector) )
+            self.noop_vector = self.noop_vector + q * s1
+        
+
+        # self.state_action_q_dict[s1][a] = self.state_action_q_dict[s1][a] + self.alpha*(r + self.gamma*max(self.state_action_q_dict[s2]) - self.state_action_q_dict[s1][a])
+        
+    def max_next(self, s):
+        flap = np.inner(self.flap_vector, s)
+        noop = np.inner(self.noop_vector, s)
+        if flap > noop:
+            return flap
+        return noop
+
+    def get_action(self, s1):
+        flap = np.dot(self.flap_vector, s1)
+        noop = np.dot(self.noop_vector, s1)
+        if flap > noop:
+            if random.randint(1,100) > self.epsilon:
                 return 1
-            else:
-                return 0
+            return 0
+        if random.randint(1,100) > self.epsilon:
+            return 0
+        return 1
     
     def get_policy(self, s1):
-
-        if self.state_action_q_dict[s1][0] >self.state_action_q_dict[s1][1]:
-            return 0
-        elif self.state_action_q_dict[s1][0] <self.state_action_q_dict[s1][1]:
-            return 1
-        else:
-            if random.randint(1,100)>50:
-                return 1
-            else:
-                return 0
+        flap = np.dot(self.flap_vector, s)
+        noop = np.dot(self.noop_vector, s)
+        if flap > noop:
+            return flap
+        return noop
 
 
 class FlappyAgent:
@@ -95,19 +92,12 @@ class FlappyAgent:
 
     def state_binner(self, state):
         """splits the y-postion of the bird, y postion of the next gap and horizontal distanze between bird and pipe into 15 bins."""
-        dist_bin =  int(state["next_pipe_dist_to_player"]/9.6)
-        if dist_bin >14:
-            dist_bin = 14
-        player_bin = int(state["player_y"]/25.46)
-        if player_bin >14:
-            player_bin = 14
-        pipe_bin = int(state["next_pipe_top_y"]/12.84)
-        if pipe_bin > 14:
-            pipe_bin = 14
-        vel = state["player_vel"]
-        if vel < -8:
-            vel = -8
-        binned_state = (pipe_bin,  dist_bin, player_bin, vel)
+        dist_bin =  int(state["next_pipe_dist_to_player"])
+        player_bin = int(state["player_y"])
+        pipe_bin = int(state["next_pipe_top_y"])
+        vel = int(state["player_vel"])
+        
+        binned_state = np.array([pipe_bin,  dist_bin, player_bin, vel])
         return binned_state 
 
     def training_policy(self, s1):
@@ -247,5 +237,5 @@ def train(nb_frames, agent):
 agent = FlappyAgent()
 train(20000000, agent)
 run_game(70, agent)
-pickle.dump(agent, open('QL.txt',"wb"))
-plt.show()
+# pickle.dump(agent, open('QL.txt',"wb"))
+# plt.show()
