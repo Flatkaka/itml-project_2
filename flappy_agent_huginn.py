@@ -102,11 +102,12 @@ class FlappyAgent:
     def increment_frames(self):
         self.frames  += 1
 
-    def state_binner(self, state):
+    def state_binner(self, state, extra_reward = 0):
         """splits the y-postion of the bird, y postion of the next gap and horizontal distanze between bird and pipe into 15 bins."""
-        vel = state["player_vel"]
-        if vel < -8:
-            vel = -8
+        return_reward = 0
+        vel = (state["player_vel"] + 8)//4
+        if vel < 0:
+            vel = 0
         diff_bin =  int(state["next_pipe_top_y"]-state["player_y"])
         if diff_bin < -125:
             diff_bin = 0
@@ -119,6 +120,8 @@ class FlappyAgent:
         if diff_bin == 0 or diff_bin == 1:
             binned_state = (diff_bin, 0,vel,0)
         else:
+            if diff_bin == 4:
+                return_reward = extra_reward
             pipe_bin = int(state["next_pipe_dist_to_player"]/10)+1
             if pipe_bin > 15:
                 pipe_bin = 15
@@ -131,7 +134,7 @@ class FlappyAgent:
             else:
                 next_next = 3
             binned_state = (diff_bin, pipe_bin,vel, next_next)
-        return binned_state 
+        return binned_state, return_reward
 
     def training_policy(self, s1):
         """ Returns the index of the action that should be done in state while training the agent.
@@ -190,7 +193,8 @@ def run_game(nb_episodes, agent):
     while nb_episodes > 0:
         # pick an action
         # TODO: for training using agent.training_policy instead
-        action = agent.policy(agent.state_binner(env.game.getGameState()))
+        state, ignore = agent.state_binner(env.game.getGameState())
+        action = agent.policy(state)
 
         # step the environment
         reward = env.act(env.getActionSet()[action])
@@ -201,7 +205,7 @@ def run_game(nb_episodes, agent):
         score += reward
 
         # reset the environment if the game is over
-        if env.game_over():
+        if env.game_over() or score >= 60:
             average += score
             if score > highscore:
                 highscore = score
@@ -211,13 +215,13 @@ def run_game(nb_episodes, agent):
             env.reset_game()
             nb_episodes -= 1
             score = 0
-    print("Average for 1000 runs {}".format(average/tot_nb_episodes))
+    print("Average for {} runs {:.2f}".format(tot_nb_episodes, average/tot_nb_episodes))
     over_50_p = (over_50_count/tot_nb_episodes)*100
     print("The percentage of scores over 50 is: %d" % (over_50_p))
     return over_50_p
     
 
-def train(nb_episodes, agent):
+def train(nb_episodes, agent, stop_frame):
     reward_values = agent.reward_values()
     
     env = PLE(FlappyBird(), fps=30, display_screen=False, force_fps=True, rng=None,
@@ -235,7 +239,7 @@ def train(nb_episodes, agent):
         # pick an action
         state = env.game.getGameState()
 
-        state = agent.state_binner(state)
+        state, extra_reward = agent.state_binner(state, 0.1)
         action = agent.training_policy(state)
 
         # step the environment
@@ -244,11 +248,12 @@ def train(nb_episodes, agent):
 
         # let the agent observe the current state transition
         newState = env.game.getGameState()
-        newState = agent.state_binner(newState)
-        agent.observe(state, action, reward, newState, env.game_over())
+        newState, ignore = agent.state_binner(newState)
+        reward_extra = reward + extra_reward
+        agent.observe(state, action, reward_extra, newState, env.game_over())
         agent.increment_frames()
         score += reward
-        if (agent.get_frames() % 50000 == 0):
+        if (agent.get_frames() % stop_frame == 0):
             break_bool = True
         if(agent.get_frames() == 1000000):
             break
@@ -265,7 +270,7 @@ def train(nb_episodes, agent):
             if nb_episodes %100 == 0:
                 print("New average {}".format(avg_score/100))
                 print("Frames {}".format(agent.get_frames()))
-                if avg_score/100 >= 5:
+                if avg_score/100 >= 4:
                     break
                 avg_score = 0
             if break_bool:
@@ -294,9 +299,11 @@ def train(nb_episodes, agent):
 #     avg = run_game(100, agent)
 #     i+=1
 
-agent = pickle.load(open('opmc.txt',"rb"))
-
-run_game(70, agent)            
+# agent = pickle.load(open('opmc.txt',"rb"))
+agent = FlappyAgent()
+train(20000, agent, 200000)
+pickle.dump(agent, open('opmc.txt',"wb"))
+run_game(100, agent)
     
 
 
